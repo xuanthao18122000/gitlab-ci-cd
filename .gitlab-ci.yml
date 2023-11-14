@@ -1,0 +1,74 @@
+variables:
+  IMAGE_NAME: xuanthao/ci-cd
+  IMAGE_TAG: node-api
+  DOCKER_DRIVER: overlay2
+  DOCKER_TLS_CERTDIR: "/certs"
+
+services:
+  - docker:19.03.12-dind
+
+stages:
+  - build
+  - deploy
+
+image: docker:19.03.12
+
+.build:
+  stage: build
+  before_script: 
+    - echo "Login Registry!!!"
+    - docker login -u $REGISTER_USER -p $REGISTER_PASS $CI_REGISTRY
+  script:
+    - echo "Building !!!"
+    - docker build -t $CI_REGISTRY .
+    - docker push $CI_REGISTRY
+  
+.deploy:
+  stage: deploy
+  before_script:
+    - chmod 400 $SSH_KEY
+  script:
+    - echo "Deploying !!!"
+    - ssh -o StrictHostKeyChecking=no -i $SSH_KEY ubuntu@ec2-54-166-201-106.compute-1.amazonaws.com "
+      docker login -u $REGISTER_USER -p $REGISTER_PASS $CI_REGISTRY && echo "Login registry successful!!!" &&
+      |
+      if [ "$(docker ps -a | grep $CI_REGISTRY)" ]; then
+      docker rm --force $CI_REGISTRY
+      fi
+      docker run -d --name $CI_REGISTRY -p 3000:3000 --restart always $CI_REGISTRY"
+
+    # - ssh -o StrictHostKeyChecking=no -i $SSH_KEY ubuntu@ec2-54-166-201-106.compute-1.amazonaws.com "
+    #     docker login -u $REGISTER_USER -p $REGISTER_PASS $CI_REGISTRY && echo "Login Registry!!!" &&
+    #     docker run -d -p 3000:3000 $CI_REGISTRY"
+
+    # - |
+    #   if [ "$(docker ps -a | grep $CI_REGISTRY)" ]; then
+    #     docker rm --force $CI_REGISTRY
+    #   fi
+    # - docker run -d --name $CI_REGISTRY -p ${H_PORT}:${C_PORT} --restart always $CI_REGISTRY
+
+build-dev:
+  extends: .build
+  tags:
+    - ci-cd
+  only:
+    - dev
+  variables:
+    NAME: ci-cd
+    BUILD_ENV: dev
+  before_script:
+    - docker login -u $REGISTER_USER -p $REGISTER_PASS $CI_REGISTRY
+    - cp -f ${FILE_ENV_DEV} .env
+    - cp -f ${RUN_CONTAINER_DEV} run-container.sh
+
+deploy-dev:
+  extends: .deploy
+  tags:
+    - ci-cd
+  only:
+    - dev
+  variables:
+    NAME: ci-cd
+    BUILD_ENV: dev
+    C_PORT: 3000
+    H_PORT: 3000
